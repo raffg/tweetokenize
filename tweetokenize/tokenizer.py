@@ -7,10 +7,15 @@
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 import re
 from os import path
-from itertools import imap
-from htmlentitydefs import name2codepoint
+#from itertools import imap
+try:
+    from itertools import imap
+except ImportError:
+    # Python 3...
+    imap=map
+from html.entities import name2codepoint
 
-html_entities = {k: unichr(v) for k, v in name2codepoint.iteritems()}
+html_entities = {k: chr(v) for k, v in name2codepoint.items()}
 html_entities_re = re.compile(r"&#?\w+;")
 emoji_ranges = ((u'\U0001f300', u'\U0001f5ff'), (u'\U0001f600', u'\U0001f64f'), (u'\U0001f680', u'\U0001f6c5'),
                 (u'\u2600', u'\u26ff'), (u'\U0001f170', u'\U0001f19a'))
@@ -35,12 +40,15 @@ def _converthtmlentities(msg):
                 return '&' + s + ';'
     return html_entities_re.sub(replace_entities, msg)
 
-
+'''
 def _unicode(word):
     if isinstance(word, unicode):
         return word
     return unicode(word, encoding='utf-8')
+'''
 
+def _unicode(word):
+    return (word)
 
 def _isemoji(s):
     return len(s) == len(u'\U0001f4a9') and any(l <= s <= u for l, u in emoji_ranges) or s in emoji_flags
@@ -48,12 +56,12 @@ def _isemoji(s):
 
 class Tokenizer(object):
     """
-    Can be used to tokenize a string representation of a message, adjusting 
-    features based on the given configuration details, to enable further 
+    Can be used to tokenize a string representation of a message, adjusting
+    features based on the given configuration details, to enable further
     processing in feature extraction and training stages.
-    
+
     An example usage::
-    
+
       >>> from tweetokenize import Tokenizer
       >>> gettokens = Tokenizer(usernames='USER', urls='')
       >>> gettokens.tokenize('@justinbeiber yo man!love you#inlove#wantyou in a totally straight way #brotime <3:p:D www.justinbeiber.com')
@@ -66,89 +74,97 @@ class Tokenizer(object):
     _lexicons = path.join(path.dirname(path.realpath(__file__)), 'lexicons/{}.txt')
 
     # Regular expressions
-    usernames_re = re.compile(r"@\w{1,15}")
+    reg_dict = dict()
+
+    reg_dict['usernames_re'] = re.compile(r'@\w{1,15}')
     with open(_lexicons.format('domains'), 'r') as f:
         domains = f.read().strip().replace('\n', '|')
-    urls_re = re.compile(r"(?:(?:https?\://[A-Za-z0-9\.]+)|(?:(?:www\.)?[A-Za-z0-9]+\.(?:{})))(?:\/\S+)?"
+    reg_dict['urls_re'] = re.compile(r"(?:(?:https?\://[A-Za-z0-9\.]+)|(?:(?:www\.)?[A-Za-z0-9]+\.(?:{})))(?:\/\S+)?"
                          "(?=\s+|$)".format(domains))
     del domains
-    hashtags_re = re.compile(r"#\w+[\w'-]*\w+")
+    reg_dict['hashtags_re'] = re.compile(r"#\w+[\w'-]*\w+")
     ellipsis_re = re.compile(r"\.\.+")
     word_re = re.compile(r"(?:[a-zA-Z0-9]+['-]?[a-zA-Z]+[a-zA-Z0-9]*)|(?:[a-zA-Z0-9]*[a-zA-Z]+['-]?[a-zA-Z0-9]+)")
-    times_re = re.compile(r"\d{1,2}:\d{2}(?::\d{2})?\s*(?:AM|PM|am|pm)?")
-    phonenumbers_re = re.compile(r"(?:\+?[01][\-\s\.]*)?(?:\(?\d{3}[\-\s\.\)]*)?\d{3}[\-\s\.]*\d{4}(?:\s*x\s*\d+)?"
+    reg_dict['times_re'] = re.compile(r"\d{1,2}:\d{2}(?::\d{2})?\s*(?:AM|PM|am|pm)?")
+    reg_dict['phonenumbers_re'] = re.compile(r"(?:\+?[01][\-\s\.]*)?(?:\(?\d{3}[\-\s\.\)]*)?\d{3}[\-\s\.]*\d{4}(?:\s*x\s*\d+)?"
                                  "(?=\s+|$)")
-    number_re = r"(?:[+-]?\$?\d+(?:\.\d+)?(?:[eE]-?\d+)?%?)(?![A-Za-z])"
-    numbers_re = re.compile(r"{0}(?:\s*/\s*{0})?".format(number_re))  # deals with fractions
-    del number_re
+    num_re_temp = r"(?:[+-]?\$?\d+(?:\.\d+)?(?:[eE]-?\d+)?%?)(?![A-Za-z])"
+    reg_dict['numbers_re'] = re.compile(r"{0}(?:\s*/\s*{0})?".format(num_re_temp))  # deals with fractions
+    del num_re_temp
     other_re = r"(?:[^#\s\.]|\.(?!\.))+"
     _token_regexs = ('usernames', 'urls', 'hashtags', 'times', 'phonenumbers', 'numbers')
+    #import pdb
+    #pdb.set_trace()
+    uhhh = []
+    for regx in _token_regexs:
+        uhhh.append(reg_dict[regx+'_re'])
+    reg_list = uhhh + [word_re, ellipsis_re, other_re]
     tokenize_re = re.compile(
-        ur"|".join(
+        r"|".join(
             imap(lambda x: getattr(x, 'pattern', x),
-                 [locals()[regex + '_re'] for regex in _token_regexs] + [word_re, ellipsis_re, other_re])))
-    del regex  # otherwise stays in class namespace
+                 reg_list)))
+    #del regex  # otherwise stays in class namespace
     repeating_re = re.compile(r"([a-zA-Z])\1\1+")
     doublequotes = ((u'“',u'”'),(u'"',u'"'),(u'‘',u'’'),(u'＂',u'＂'))
     punctuation = (u'!$%()*+,-/:;<=>?[\\]^_.`{|}~\'' + u''.join(c for t in doublequotes for c in t))
-    quotes_re = re.compile(ur"|".join(ur'({}.*?{})'.format(f,s) for f,s in doublequotes) + ur'|\s(\'.*?\')\s')
+    quotes_re = re.compile(r"|".join(r'({}.*?{})'.format(f,s) for f,s in doublequotes) +   r'|\s(\'.*?\')\s')
     del doublequotes
 
     def __init__(self, **kwargs):
         """
-        Constructs a new Tokenizer. Can specify custom settings for various 
+        Constructs a new Tokenizer. Can specify custom settings for various
         feature normalizations.
-        
-        Any features with replacement tokens can be removed from the message by 
-        setting the token to the empty string (C{""}), C{"DELETE"}, or 
+
+        Any features with replacement tokens can be removed from the message by
+        setting the token to the empty string (C{""}), C{"DELETE"}, or
         C{"REMOVE"}.
-        
+
         @type lowercase: C{bool}
-        @param lowercase: If C{True}, lowercases words, excluding those with 
+        @param lowercase: If C{True}, lowercases words, excluding those with
             all letters capitalized.
-        
+
         @type allcapskeep: C{bool}
-        @param allcapskeep: If C{True}, maintains capitalization for words with 
-            all letters in capitals. Otherwise, capitalization for such words 
+        @param allcapskeep: If C{True}, maintains capitalization for words with
+            all letters in capitals. Otherwise, capitalization for such words
             is dependent on C{lowercase}.
-        
+
         @type normalize: C{int}
-        @param normalize: The number of repeating letters when normalizing 
+        @param normalize: The number of repeating letters when normalizing
             arbitrary letter elongations.
-            
+
             Example::
                 Heyyyyyy i lovvvvvvve youuuuuuuuu <3
-            
+
             Becomes::
                 Heyyy i lovvve youuu <3
-            
+
             Not sure why you would want to change this (maybe just for fun?? :P)
-        
-        @param usernames: Serves as the replacement token for anything that 
-            parses as a Twitter username, ie. C{@rayj}. Setting this to 
+
+        @param usernames: Serves as the replacement token for anything that
+            parses as a Twitter username, ie. C{@rayj}. Setting this to
             C{False} means no usernames will be changed.
-        
-        @param urls: Serves as the replacement token for anything that 
-            parses as a URL, ie. C{bit.ly} or C{http://example.com}. Setting 
+
+        @param urls: Serves as the replacement token for anything that
+            parses as a URL, ie. C{bit.ly} or C{http://example.com}. Setting
             this to C{False} means no URLs will be changed.
-        
-        @param hashtags: Serves as the replacement token for anything that 
-            parses as a Twitter hashtag, ie. C{#ihititfirst} or 
-            C{#onedirection}. Setting this to C{False} means no hashtags will 
+
+        @param hashtags: Serves as the replacement token for anything that
+            parses as a Twitter hashtag, ie. C{#ihititfirst} or
+            C{#onedirection}. Setting this to C{False} means no hashtags will
             be changed.
-        
+
         @param phonenumbers: Replacement token for phone numbers.
-        
+
         @param times: Replacement token for times.
-        
+
         @param numbers: Replacement token for any other kinds of numbers.
-        
+
         @type ignorequotes: C{bool}
-        @param ignorequotes: If C{True}, will remove various types of quotes 
+        @param ignorequotes: If C{True}, will remove various types of quotes
             and the contents within.
-        
+
         @type ignorestopwords: C{bool}
-        @param ignorestopwords: If C{True}, will remove any stopwords. The 
+        @param ignorestopwords: If C{True}, will remove any stopwords. The
             default set includes 'I', 'me', 'itself', 'against', 'should', etc.
         """
         for keyword in self._default_args:
@@ -159,11 +175,11 @@ class Tokenizer(object):
     def __call__(self, iterable):
         """
         Iterator for the tokenization of given messages.
-        
+
         @rtype: C{list} of C{str}
         @return: Iterator of lists representing message tokenizations.
-        
-        @param iterable: Object capable of iteration, providing strings for 
+
+        @param iterable: Object capable of iteration, providing strings for
             tokenization.
         """
         for msg in iterable:
@@ -197,7 +213,7 @@ class Tokenizer(object):
                 tokens.append(self._cleanword(word))
                 continue # don't check rest of conditions
             for token in self._token_regexs: # id & possibly replace tokens
-                regex = getattr(self, token + '_re')
+                regex = self.reg_dict[token + '_re']
                 replacement_token = getattr(self, token)
                 if regex.match(word):
                     if replacement_token: # decide if we change it
@@ -247,16 +263,16 @@ class Tokenizer(object):
 
     def tokenize(self, message):
         """
-        Tokenize the given string into a list of strings representing the 
+        Tokenize the given string into a list of strings representing the
         constituent words of the message.
-        
+
         @rtype: C{list} of C{str}
         @return: The tokenization of the message.
-        
+
         @type message: C{str}
         @param message: The string representation of the message.
         """
-        if not isinstance(message, basestring):
+        if not isinstance(message, str):
             raise TypeError('cannot tokenize non-string, {}'.format(repr(type(message).__name__)))
         message = _converthtmlentities(_unicode(message))
         if self.ignorequotes:
@@ -268,13 +284,13 @@ class Tokenizer(object):
 
     def emoticons(self, iterable=None, filename=None):
         """
-        Consumes an iterable of emoticons that the tokenizer will tokenize on. 
+        Consumes an iterable of emoticons that the tokenizer will tokenize on.
         Allows for user-specified set of emoticons to be recognized.
-        
-        @param iterable: Object capable of iteration, providing emoticon 
+
+        @param iterable: Object capable of iteration, providing emoticon
             strings.
         @type filename: C{str}
-        @param filename: Path to the file containing emoticons delimited by 
+        @param filename: Path to the file containing emoticons delimited by
             new lines. Strips trailing whitespace and skips blank lines.
         """
         self._emoticons = self._collectset(iterable, filename)
@@ -283,14 +299,14 @@ class Tokenizer(object):
 
     def stopwords(self, iterable=None, filename=None):
         """
-        Consumes an iterable of stopwords that the tokenizer will ignore if the 
-        stopwords setting is C{True}. The default set is taken from NLTK's 
+        Consumes an iterable of stopwords that the tokenizer will ignore if the
+        stopwords setting is C{True}. The default set is taken from NLTK's
         english list.
-        
-        @param iterable: Object capable of iteration, providing stopword 
+
+        @param iterable: Object capable of iteration, providing stopword
             strings.
         @type filename: C{str}
-        @param filename: Path to the file containing stopwords delimited by 
+        @param filename: Path to the file containing stopwords delimited by
             new lines. Strips trailing whitespace and skips blank lines.
         """
         self._stopwords = self._collectset(iterable, filename)
