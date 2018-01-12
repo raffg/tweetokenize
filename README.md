@@ -1,3 +1,6 @@
+My fork updates the package for compability with Python 3
+
+
 tweetokenize
 ============
 
