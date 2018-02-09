@@ -76,7 +76,7 @@ class Tokenizer(object):
     # Regular expressions
     reg_dict = dict()
 
-    reg_dict['usernames_re'] = re.compile(r'@\w{1,15}')
+    reg_dict['usernames_re'] = re.compile(r'@\w{1,15}|"@\w{1,15}|.@\w{1,15}|.@\w{1,15},|@\w{1,15},')
     with open(_lexicons.format('domains'), 'r') as f:
         domains = f.read().strip().replace('\n', '|')
     reg_dict['urls_re'] = re.compile(r"(?:(?:https?\://[A-Za-z0-9\.]+)|(?:(?:www\.)?[A-Za-z0-9]+\.(?:{})))(?:\/\S+)?"
